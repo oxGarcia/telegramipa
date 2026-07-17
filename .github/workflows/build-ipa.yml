@@ -147,7 +147,7 @@ jobs:
           python3 build-system/Make/Make.py \
             --overrideXcodeVersion \
             --cacheDir="$HOME/telegram-bazel-cache" \
-            --bazelArguments="--distdir=$HOME/bazel-distdir --//Telegram:disableExtensions" \
+            --bazelArguments="--distdir=$HOME/bazel-distdir" \
             build \
             --configurationPath=build-config.json \
             --codesigningInformationPath=build-system/fake-codesigning \
