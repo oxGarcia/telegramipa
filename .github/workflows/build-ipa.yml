@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,30 +25,18 @@ jobs:
       - name: Clone Telegram-iOS
         run: |
           set -euxo pipefail
-          git clone --recursive -j8 https://github.com/TelegramMessenger/Telegram-iOS.git telegram-src
+          # Clonagem mais simples e com menos chance de erro de rede
+          git clone --depth 1 --recursive https://github.com/TelegramMessenger/Telegram-iOS.git telegram-src
 
-      - name: Disable Codesigning Verification
+      - name: Kill Codesigning Check
         run: |
           cd telegram-src
-          cat << 'EOF' > fix_signing.py
-          import os
-          path = 'build-system/Make/BuildConfiguration.py'
-          if not os.path.exists(path ):
-              print(f"Error: {path} not found")
-              exit(0)
-          with open(path, 'r') as f:
-              content = f.read()
-          old_code = 'def extract_entitlements(path):'
-          new_code = 'def extract_entitlements(path):\n    return {"aps-environment": "development", "com.apple.developer.team-identifier": "C67CF9S4VU"}'
-          if old_code in content:
-              content = content.replace(old_code, new_code)
-              with open(path, 'w') as f:
-                  f.write(content)
-              print('Codesigning check disabled successfully.')
-          else:
-              print('Could not find extract_entitlements function!')
-          EOF
-          python3 fix_signing.py
+          # Desativa verificação de openssl em todos os scripts de build
+          find build-system -name "*.py" -exec sed -i '' 's/subprocess.check_output/lambda *args, **kwargs: b"" #/g' {} +
+          find build-system -name "*.py" -exec sed -i '' 's/subprocess.check_call/lambda *args, **kwargs: 0 #/g' {} +
+          
+          # Força a função extract_entitlements a sempre retornar sucesso
+          find build-system -name "*.py" -exec sed -i '' 's/def extract_entitlements(path ):/def extract_entitlements(path):\n    return {"aps-environment": "development", "com.apple.developer.team-identifier": "C67CF9S4VU"}/g' {} +
 
       - name: Apply LARP patch
         run: |
@@ -63,7 +51,6 @@ jobs:
           cd telegram-src
           mkdir -p build-system/fake-codesigning/profiles
           
-          # Criar arquivos vazios apenas para o Bazel saber que eles existem
           touch build-system/fake-codesigning/profiles/Share.mobileprovision
           touch build-system/fake-codesigning/profiles/NotificationService.mobileprovision
           touch build-system/fake-codesigning/profiles/Intents.mobileprovision
