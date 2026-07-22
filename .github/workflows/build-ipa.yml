@@ -69,9 +69,13 @@ jobs:
             "api_id": "${API_ID}",
             "api_hash": "${API_HASH}",
             "team_id": "${TEAM_ID}",
+            "appstore_id": "0",
             "app_center_id": "0",
+            "premium_iap_product_id": "org.telegram.Telegram.premium",
             "is_internal_build": false,
             "is_appstore_build": false,
+            "enable_siri": false,
+            "enable_icloud": false,
             "app_specific_url_scheme": "tg"
           }
           CONFIG
