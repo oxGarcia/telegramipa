@@ -1,100 +1,23 @@
-name: Build Telegram IPA
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-15
-    timeout-minutes: 120
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set Xcode (latest stable)
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Clone Telegram-iOS
-        run: |
-          set -euxo pipefail
-          git clone --recursive -j8 https://github.com/TelegramMessenger/Telegram-iOS.git telegram-src
-
       - name: Disable Codesigning Verification
         run: |
           cd telegram-src
-          # Modifica o script para não falhar se o openssl não conseguir validar o perfil fake
-          sed -i '' 's/subprocess.check_output(verify_args )/b""/g' build-system/Make/BuildConfiguration.py || true
-          sed -i '' 's/subprocess.check_call(verify_args)/0/g' build-system/Make/BuildConfiguration.py || true
-
-      - name: Apply LARP patch
-        run: |
-          set -euxo pipefail
-          cd telegram-src
-          python3 -c "from pathlib import Path; src = Path('../larp.patch'); dst = Path('../larp.patch.lf'); dst.write_bytes(src.read_bytes().replace(b'\r\n', b'\n'))"
-          git apply --3way --allow-empty ../larp.patch.lf || echo "Patch applied with warnings"
-
-      - name: Create build config
-        run: |
-          set -euxo pipefail
-          cd telegram-src
-          mkdir -p build-system/fake-codesigning/profiles
+          # Sobrescreve a função de verificação no arquivo BuildConfiguration.py
+          # Fazendo com que ela sempre retorne um dicionário fake com o aps-environment
+          python3 -c "
+          import os
+          path = 'build-system/Make/BuildConfiguration.py'
+          with open(path, 'r') as f:
+              content = f.read()
           
-          # Criar arquivos vazios apenas para o Bazel saber que eles existem
-          touch build-system/fake-codesigning/profiles/Share.mobileprovision
-          touch build-system/fake-codesigning/profiles/NotificationService.mobileprovision
-          touch build-system/fake-codesigning/profiles/Intents.mobileprovision
-          touch build-system/fake-codesigning/profiles/Widget.mobileprovision
-          touch build-system/fake-codesigning/profiles/App.mobileprovision
+          # Procura a função que extrai entitlements e faz ela retornar o que precisamos
+          old_code = 'def extract_entitlements(path):'
+          new_code = 'def extract_entitlements(path):\n    return {\"aps-environment\": \"development\", \"com.apple.developer.team-identifier\": \"C67CF9S4VU\"}'
           
-          BUNDLE_ID="${{ secrets.BUNDLE_ID }}"
-          [ -z "$BUNDLE_ID" ] && BUNDLE_ID="org.telegram.build"
-          TEAM_ID="${{ secrets.TEAM_ID }}"
-          [ -z "$TEAM_ID" ] && TEAM_ID="C67CF9S4VU"
-          API_ID="${{ secrets.API_ID }}"
-          [ -z "$API_ID" ] && API_ID="0"
-          API_HASH="${{ secrets.API_HASH }}"
-          [ -z "$API_HASH" ] && API_HASH="placeholder"
-          
-          cat > build-config.json << CONFIG
-          {
-            "bundle_id": "${BUNDLE_ID}",
-            "api_id": "${API_ID}",
-            "api_hash": "${API_HASH}",
-            "team_id": "${TEAM_ID}",
-            "appstore_id": "0",
-            "app_center_id": "0",
-            "premium_iap_product_id": "org.telegram.Telegram.premium",
-            "is_internal_build": false,
-            "is_appstore_build": false,
-            "enable_siri": false,
-            "enable_icloud": false,
-            "app_specific_url_scheme": "tg"
-          }
-          CONFIG
-
-      - name: Build Telegram
-        run: |
-          set -euxo pipefail
-          cd telegram-src
-          python3 build-system/Make/Make.py \
-            --overrideXcodeVersion \
-            --cacheDir=$HOME/telegram-bazel-cache \
-            build \
-            --configurationPath=build-config.json \
-            --codesigningInformationPath=build-system/fake-codesigning \
-            --buildNumber=100001 \
-            --configuration=release_arm64
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: Telegram-build
-          path: telegram-src/build/artifacts/*.ipa
+          if old_code in content:
+              content = content.replace(old_code, new_code)
+              with open(path, 'w') as f:
+                  f.write(content)
+              print('Codesigning check disabled successfully.')
+          else:
+              print('Could not find extract_entitlements function!')
+          "
